@@ -1,0 +1,157 @@
+import random
+
+# ==========================================
+# 1. PROBLEM SETUP & PARAMETERS
+# ==========================================
+# Format: Each job has a list of operations -> (Machine_ID, Duration)
+# Machine 0 = Machine A, Machine 1 = Machine B
+JOBS_DATA = [
+    [(0, 3), (1, 2)],  # Job 0: Step 1 on M_0 (3h), Step 2 on M_1 (2h)
+    [(1, 2), (0, 4)]   # Job 1: Step 1 on M_1 (2h), Step 2 on M_0 (4h)
+]
+
+NUM_JOBS = len(JOBS_DATA)
+NUM_MACHINES = 2
+GENES_PER_JOB = len(JOBS_DATA[0])
+
+# GEA Parameters
+POPULATION_SIZE = 20
+GENERATIONS = 50
+MUTATION_RATE = 0.2
+CROSSOVER_RATE = 0.7
+
+# ==========================================
+# 2. CORE GEA FUNCTIONS
+# ==========================================
+
+def initialize_population():
+    """Generates random valid chromosomes (Permutation-with-Repetition)."""
+    population = []
+    base_chromosome = []
+    for job_id in range(NUM_JOBS):
+        base_chromosome.extend([job_id] * GENES_PER_JOB)
+        
+    for _ in range(POPULATION_SIZE):
+        chromosome = base_chromosome.copy()
+        random.shuffle(chromosome)
+        population.append(chromosome)
+    return population
+
+def gene_expression_and_fitness(chromosome):
+    """Gene Expression: Translates genetic sequence into a schedule timeline."""
+    machine_free_time = [0] * NUM_MACHINES
+    job_free_time = [0] * NUM_JOBS
+    job_op_index = [0] * NUM_JOBS  
+    
+    for job_id in chromosome:
+        op_idx = job_op_index[job_id]
+        machine_id, duration = JOBS_DATA[job_id][op_idx]
+        
+        # Determine the earliest starting time constraint
+        start_time = max(machine_free_time[machine_id], job_free_time[job_id])
+        end_time = start_time + duration
+        
+        # Update scheduling states
+        machine_free_time[machine_id] = end_time
+        job_free_time[job_id] = end_time
+        job_op_index[job_id] += 1
+        
+    makespan = max(machine_free_time)
+    fitness = 1.0 / makespan  # Lower makespan = Higher fitness
+    return makespan, fitness
+
+def crossover(parent1, parent2):
+    """Performs Position-Based Crossover to mix parents without breaking constraints."""
+    if random.random() > CROSSOVER_RATE:
+        return parent1.copy(), parent2.copy()
+        
+    size = len(parent1)
+    child1 = [None] * size
+    child2 = [None] * size
+    
+    # Pick random indices to inherit directly from parents
+    indices = sorted(random.sample(range(size), size // 2))
+    
+    for idx in indices:
+        child1[idx] = parent1[idx]
+        child2[idx] = parent2[idx]
+        
+    # Fill remaining spots with leftover genes while keeping relative order
+    def fill_child(child, parent_source):
+        p_idx = 0
+        for i in range(size):
+            if child[i] is None:
+                # Find next available gene that doesn't violate remaining item pools
+                while p_idx < size:
+                    gene = parent_source[p_idx]
+                    # Check if child still needs this job ID count
+                    if child.count(gene) < parent1.count(gene):
+                        child[i] = gene
+                        p_idx += 1
+                        break
+                    p_idx += 1
+                    
+    fill_child(child1, parent2)
+    fill_child(child2, parent1)
+    return child1, child2
+
+def mutate(chromosome):
+    """Applies mutation by swapping two random gene positions."""
+    if random.random() < MUTATION_RATE:
+        idx1, idx2 = random.sample(range(len(chromosome)), 2)
+        chromosome[idx1], chromosome[idx2] = chromosome[idx2], chromosome[idx1]
+    return chromosome
+
+# ==========================================
+# 3. ALGORITHM EXECUTION LOOP
+# ==========================================
+
+def run_gea():
+    population = initialize_population()
+    best_chromosome = None
+    best_makespan = float('inf')
+    
+    print("--- Starting Gene Expression Algorithm ---")
+    
+    for generation in range(1, GENERATIONS + 1):
+        evaluated_pop = []
+        new_best_found_this_gen = False
+        
+        # Evaluate fitness
+        for chrom in population:
+            makespan, fitness = gene_expression_and_fitness(chrom)
+            evaluated_pop.append((chrom, makespan, fitness))
+            
+            # Track global best solution and print ONLY when it improves
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_chromosome = chrom.copy()
+                new_best_found_this_gen = True
+        
+        if new_best_found_this_gen:
+            print(f"Generation {generation:02d}: New Best Makespan Found = {best_makespan} hours")
+            
+        # Selection: Sort by highest fitness (lowest makespan)
+        evaluated_pop.sort(key=lambda x: x[2], reverse=True)
+        pool = [ind[0] for ind in evaluated_pop[:POPULATION_SIZE // 2]]
+        
+        # Breed Next Generation
+        next_generation = []
+        while len(next_generation) < POPULATION_SIZE:
+            p1 = random.choice(pool)
+            p2 = random.choice(pool)
+            
+            c1, c2 = crossover(p1, p2)
+            
+            next_generation.append(mutate(c1))
+            if len(next_generation) < POPULATION_SIZE:
+                next_generation.append(mutate(c2))
+                
+        population = next_generation
+
+    print("\n--- Optimization Complete ---")
+    print(f"Optimal Chromosome Sequence Found: {best_chromosome}")
+    print(f"Minimized Total Time (Makespan): {best_makespan} hours")
+
+if __name__ == "__main__":
+    run_gea()
